@@ -61,7 +61,10 @@ py::object popsift(pyarray_uint8 image,
 
     if (!image.size()) return py::none();
 
-    if (!ctx) ctx = new PopSiftContext();
+    std::once_flag ctx_init_flag;
+    if (!ctx) {
+        std::call_once(ctx_init_flag, []() {ctx = new PopSiftContext();});
+    }
 
     int width = image.shape(1);
     int height = image.shape(0);
@@ -98,6 +101,7 @@ py::object popsift(pyarray_uint8 image,
                 }
             }
 
+            py::gil_scoped_acquire acquire;
             py::list retn;
             retn.append(py_array_from_data(&points[0], numFeatures, 4));
             retn.append(py_array_from_data(&desc[0], numFeatures, 128));
