@@ -1,4 +1,4 @@
-a2rl_tests/test_footage/*
+a2rl_tests/test_footage*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

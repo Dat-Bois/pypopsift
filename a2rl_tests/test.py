@@ -1,14 +1,19 @@
+# Disable YOLO verbose output
+import os
+os.environ['YOLO_VERBOSE'] = 'False'
+
 import cv2
 import glob
 import numpy as np
 from pypopsift import popsift
+from ultralytics import YOLO
 
 config = {
     'sift_peak_threshold': 0.1,
     'sift_edge_threshold': 10.0,
-    'feature_min_frames': 1000,
+    'feature_min_frames': 500, # keypoints
     'feature_use_adaptive_suppression': False,
-    'feature_process_size': 900
+    'feature_process_size': 900 # resize image to this size before processing
 }
 
 def resized_image(image, config):
@@ -22,12 +27,7 @@ def resized_image(image, config):
     else:
         return image
 
-def extract_features(filename, config):
-    image = cv2.imread(filename)
-
-    if image is None:
-        raise IOError("Unable to load image {}".format(filename))
-
+def extract_features(image, config):
     image = resized_image(image, config)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -56,7 +56,24 @@ def draw_matches(image1, image2, points1, points2, matches):
     draw = cv2.drawMatches(image1, points1, image2, points2, matches, None)
     return draw
 
-def match_images(image1, image2, matcher, config):
+def preprocess_image(model, image):
+    # Remove everything outside the bounding box (make it black)
+    results = model(image, device="cuda:0")
+    def get_area(box):
+        x1, y1, x2, y2 = box.xyxy.cpu().numpy().flatten()
+        return (x2-x1) * (y2-y1)
+    for result in results:
+        max_box = sorted(result.boxes, key=lambda x: get_area(x) if x.conf>0.5 else x[-1], reverse=True)[0]
+        x1, y1, x2, y2 = max_box.xyxy.cpu().numpy().flatten()
+    mask = np.zeros_like(image, dtype=np.uint8)
+    mask[int(y1):int(y2), int(x1):int(x2)] = 255 if len(image.shape) == 2 else (255, 255, 255)
+    image = cv2.bitwise_and(image, mask)
+    return image
+
+def match_images(image1, image2, matcher, model, config):
+    image1 = cv2.imread(image1)
+    image2 = cv2.imread(image2)
+    image2 = preprocess_image(model, image2)
     points1, desc1, image1 = extract_features(image1, config)
     points2, desc2, image2 = extract_features(image2, config)
     matches = match_features(matcher, desc1, desc2)
@@ -71,12 +88,22 @@ def get_images(folder):
     return images
 
 if __name__ == "__main__":
-    bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
     # match_images("img1.png", "img2.png", config)
-    images = get_images("test_footage")
+    model = YOLO("epoch18.pt")
+    #-----------------Test-----------------
+    # image = cv2.imread("test_footage/302.jpg")
+    # image = preprocess_image(model, image)
+    # cv2.namedWindow("Image", cv2.WINDOW_NORMAL)
+    # imS = cv2.resizeWindow("Image", 1920, 1080)
+    # cv2.imshow("Image", image)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+    #--------------------------------------
+    bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+    images = get_images("test_footage2")
     for i in images:
         try:
-            match_images("gate.png", i, bf, config)
+            match_images("gate.png", i, bf, model, config)
         except KeyboardInterrupt:
             break
         except:
